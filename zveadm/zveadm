@@ -12,6 +12,7 @@ import argparse
 ##
 ## settings
 ##
+ROOT_POOL = "rpool"
 BASE_ZONE_PATH = "/zones"
 
 ##
@@ -92,9 +93,13 @@ parser_backup.add_argument("-v", "--verbose", action="store_true", default=False
 
 # parser for the "restore" command
 parser_restore = subparsers.add_parser("restore", help="Restore a VM")
-parser_backup.add_argument("-n", "--name", dest="name", metavar="NAME",
+parser_restore.add_argument("-n", "--name", dest="name", metavar="NAME",
                            help="VM name", required=True)
-parser_backup.add_argument("-v", "--verbose", action="store_true", default=False, 
+parser_restore.add_argument("-B", "--backup", dest="backup", metavar="BACKUP",
+                           help="Full path to the backup file", required=True)
+parser_restore.add_argument("-b", "--boot", action="store_true", default=False, 
+                           help="Boot the zone after restoring the backup")
+parser_restore.add_argument("-v", "--verbose", action="store_true", default=False, 
                            help="Verbose output")
 
 # parser for the "clone" command
@@ -163,7 +168,7 @@ def create(options):
                                      str(options.autoboot).lower(), options.bootargs, 
                                      options.netaddr, options.netif) + vm_options + end_cfg
     # create the cfg file
-    fname = options.name + ".sve"
+    fname = options.name + ".cfg"
     cfg = open(fname, "w")
     cfg.write(vm_cfg)
     cfg.close()
@@ -191,7 +196,7 @@ def destroy(options):
     zone_del = shell_execute("zonecfg -z %s delete -F" % options.name)
     if options.verbose and zone_del:
         print(zone_del.strip())
-    zfs_del = shell_execute("zfs destroy -r rpool%s" % os.path.join(BASE_ZONE_PATH, options.name))
+    zfs_del = shell_execute("zfs destroy -r %s" % os.path.join(ROOT_POOL, BASE_ZONE_PATH, options.name))
     if options.verbose and zfs_del:
         print(zfs_del.strip())
     if options.verbose:
@@ -277,10 +282,10 @@ def backup(options):
     verbose("Detaching VM %s..." % options.name, options.verbose)
     shell_execute("zoneadm -z %s detach" % options.name)
     verbose("Exporting VM %s..." % options.name, options.verbose)
-    SNAPSHOT_NAME = "SVE_BACKUP"
-    vm_zfs = "rpool/zones/%s@%s" % (options.name, SNAPSHOT_NAME)
+    SNAPSHOT_NAME = "ZVE_BACKUP"
+    vm_zfs = "%s/zones/%s@%s" % (ROOT_POOL, options.name, SNAPSHOT_NAME)
     os.system("zfs snapshot -r %s" % vm_zfs)
-    os.system("zfs send -R %s > %s.dump" % (vm_zfs, os.path.join(tmp_dir, options.name)))
+    os.system("zfs send -R %s > %s.snapshot" % (vm_zfs, os.path.join(tmp_dir, options.name)))
     os.system("zfs destroy -r %s" % vm_zfs)
     verbose("Attaching VM %s..." % options.name, options.verbose)
     shell_execute("zoneadm -z %s attach" % options.name)
@@ -291,11 +296,20 @@ def backup(options):
     verbose("Creating archive %s from %s..." % (archive, tmp_dir), options.verbose)
     os.system("tar cvzf %s.tgz %s" % (archive, tmp_dir))
 
-##! precisa de verificacao: a VM existe? condicoes de progresso? /tmp
-##! esta ok? tem que verificar que correu bem (success do attach,
-##! etc.)
+## ! precisa de verificacao: a VM já existe? (attach -n não faz um
+## caralho) erros a meio? tem que verificar que correu bem (success do
+## attach, etc.)
 def restore(options):
-
+    # create the zfs fs
+    # extract .tgz
+    # zfs recv -F rpool/zones/the_zone  < the_zone.backup.snapshot
+    # destroy the ZVE_BACKUP snapshot
+    # zfs set mountpoint=legacy rpool1/zones/the_zone/ROOT/zbe
+    # zfs set mountpoint=legacy rpool1/zones/the_zone/ROOT
+    # mount -F zfs rpool1/zones/the_zone/ROOT/zbe /zones/the_zone/root/
+    # zonecfg -z the_zone -f the_zone.cfg  !! cuidado com as aspas nos boot_args !!
+    # zoneadm -z the_zone attach
+    # zoneadm boot horde2
     
 if __name__ == "__main__":
     options = parser.parse_args()
