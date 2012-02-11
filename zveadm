@@ -3,6 +3,7 @@
 import sys
 import os
 from subprocess import Popen, PIPE, STDOUT
+import datetime
 import re
 import time
 import argparse
@@ -18,7 +19,7 @@ BASE_ZONE_PATH = "/zones"
 ##
 
 # create the top-level parser
-parser = argparse.ArgumentParser(prog=sys.argv[0], description="Administer the S Virtualization Environment")
+parser = argparse.ArgumentParser(prog=sys.argv[0], description="Administer the Zeta Virtualization Environment")
 subparsers = parser.add_subparsers(title="subcommands", description="valid subcommands", help="sub-command help")
 
 # parser for the "create" command
@@ -82,6 +83,10 @@ parser_shutdown.add_argument("-v", "--verbose", action="store_true", default=Fal
 parser_backup = subparsers.add_parser("backup", help="Backup a VM")
 parser_backup.add_argument("-n", "--name", dest="name", metavar="NAME",
                            help="VM name", required=True)
+parser_backup.add_argument("-d", "--destination", dest="dest", metavar="DESTINATION",
+                           help="Full path to the backup directory", required=True)
+parser_backup.add_argument("-f", "--force", action="store_true", default=False, 
+                             help="Force backup (e.g., bypassing the shutdown scripts)")
 parser_backup.add_argument("-v", "--verbose", action="store_true", default=False, 
                            help="Verbose output")
 
@@ -154,7 +159,7 @@ def create(options):
                                      str(options.autoboot).lower(), options.bootargs, 
                                      options.netaddr, options.netif) + vm_options + end_cfg
     # create the cfg file
-    fname = options.name + ".zve"
+    fname = options.name + ".sve"
     cfg = open(fname, "w")
     cfg.write(vm_cfg)
     cfg.close()
@@ -244,7 +249,7 @@ def reboot(options):
 def shutdown(options):
     if options.force:
         verbose("Forcing shutdown...", options.verbose)
-        cmd = "zoneadm -z %s shutdown -i 0" % options.name
+        cmd = "zoneadm -z %s shutdown -i5 -g0 -y" % options.name
     else:
         verbose("Clean shutdown...", options.verbose)
         cmd = "zlogin %s halt" % options.name
@@ -253,16 +258,34 @@ def shutdown(options):
         # we need better output...
         print(zone2vm(shutdown_error))
 
+##! precisa de verificacao: a VM existe? condicoes de progresso? /tmp
+##! esta ok? tem que verificar que correu bem (success do attach,
+##! etc.)
 def backup(options):
-    out_dir = "%s.bkp" % options.name
-    os.system("mkdir %s" % out_dir)
+    date_name = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+    tmp_dir = "/tmp/%s_%s" % (options.name, date_name)
+    os.system("mkdir %s" % tmp_dir)
     verbose("Shutting down VM %s..." % options.name, options.verbose)
     shutdown(options)
     verbose("Saving configuration of VM %s..." % options.name, options.verbose)
-    shell_execute("zonecfg -z %s export > %s.cfg" % (options.name, os.path.join(out_dir, options.name)))
-    shell_execute("zoneadm -z %s detach -n > %s.xml" % (options.name, os.path.join(out_dir, options.name)))
+    shell_execute("zonecfg -z %s export > %s.cfg" % (options.name, os.path.join(tmp_dir, options.name)))
+    shell_execute("zoneadm -z %s detach -n > %s.xml" % (options.name, os.path.join(tmp_dir, options.name)))
     verbose("Detaching VM %s..." % options.name, options.verbose)
     shell_execute("zoneadm -z %s detach" % options.name)
+    verbose("Exporting VM %s..." % options.name, options.verbose)
+    SNAPSHOT_NAME = "SVE_BACKUP"
+    vm_zfs = "rpool/zones/%s@%s" % (options.name, SNAPSHOT_NAME)
+    os.system("zfs snapshot -r %s" % vm_zfs)
+    os.system("zfs send -R %s > %s.dump" % (vm_zfs, os.path.join(tmp_dir, options.name)))
+    os.system("zfs destroy -r %s" % vm_zfs)
+    verbose("Attaching VM %s..." % options.name, options.verbose)
+    shell_execute("zoneadm -z %s attach" % options.name)
+    verbose("Booting VM %s..." % options.name, options.verbose)
+    boot(options)
+    # create backup archive on the specified destination
+    archive = os.path.join(options.dest, options.name + "_" + date_name)
+    verbose("Creating archive %s from %s..." % (archive, tmp_dir), options.verbose)
+    os.system("tar cvzf %s.tgz %s" % (archive, tmp_dir))
 
     
 if __name__ == "__main__":
