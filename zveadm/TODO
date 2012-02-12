@@ -1,1 +1,5 @@
+check output: has everything executed as expected when processing FOO?
 
+improve output: don't use os.system() because it always writes to
+stdout; coherent naming (zone -> VM), -H flag for easier parsing with
+other tools
