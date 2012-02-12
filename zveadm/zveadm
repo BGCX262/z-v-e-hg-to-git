@@ -12,7 +12,6 @@ import argparse
 ##
 ## settings
 ##
-ROOT_POOL = "rpool"
 BASE_ZONE_PATH = "/zones"
 
 ##
@@ -196,7 +195,11 @@ def destroy(options):
     zone_del = shell_execute("zonecfg -z %s delete -F" % options.name)
     if options.verbose and zone_del:
         print(zone_del.strip())
-    zfs_del = shell_execute("zfs destroy -r %s" % os.path.join(ROOT_POOL, BASE_ZONE_PATH, options.name))
+    # arguments of os.path cannot be absolute paths (except the first
+    # one)
+    zfs_del = shell_execute("zfs destroy -r %s" % os.path.join(options.rpool, 
+                                                               BASE_ZONE_PATH[1:], 
+                                                               options.name))
     if options.verbose and zfs_del:
         print(zfs_del.strip())
     if options.verbose:
@@ -283,7 +286,7 @@ def backup(options):
     shell_execute("zoneadm -z %s detach" % options.name)
     verbose("Exporting VM %s..." % options.name, options.verbose)
     SNAPSHOT_NAME = "ZVE_BACKUP"
-    vm_zfs = "%s/zones/%s@%s" % (ROOT_POOL, options.name, SNAPSHOT_NAME)
+    vm_zfs = "%s/zones/%s@%s" % (options.rpool, options.name, SNAPSHOT_NAME)
     os.system("zfs snapshot -r %s" % vm_zfs)
     os.system("zfs send -R %s > %s.snapshot" % (vm_zfs, os.path.join(tmp_dir, options.name)))
     os.system("zfs destroy -r %s" % vm_zfs)
@@ -313,6 +316,9 @@ def restore(options):
     
 if __name__ == "__main__":
     options = parser.parse_args()
+    # is this ok?
+    # needs more care anyway
+    options.rpool = shell_execute("/usr/sbin/zpool list -H | awk '{print $1}'")
     # at this point the option in sys.argv[1] has to be valid; we may
     # as weel keep it simple and use a coherent naming scheme
     eval("%s(options)" % sys.argv[1])
