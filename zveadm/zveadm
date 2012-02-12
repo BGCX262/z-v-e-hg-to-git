@@ -327,7 +327,8 @@ def restore(options):
     # zonecfg -z the_zone -f the_zone.cfg  !! cuidado com as aspas nos boot_args !!
     # zoneadm -z the_zone attach
     # zoneadm boot horde2
-    
+    pass
+
 if __name__ == "__main__":
     options = parser.parse_args()
     # is this ok?
