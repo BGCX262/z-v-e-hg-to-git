@@ -49,7 +49,12 @@ parser_destroy.add_argument("-v", "--verbose", action="store_true", default=Fals
 
 # parser for the "list" command
 parser_list = subparsers.add_parser("list", help="List the existing VMs")
-parser_list.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output")
+parser_list.add_argument("-r", "--running", dest="running", action="store_true", 
+                         default=False, help="Show only running VMs")
+parser_list.add_argument("-H", "--no-header", dest="no_header", action="store_true", 
+                         default=False, help="Do not print headers")
+parser_list.add_argument("-v", "--verbose", action="store_true", default=False, 
+                         help="Verbose output")
 
 # parser for the "show" command
 parser_show = subparsers.add_parser("show", help="Display information about a VM confguration")
@@ -211,13 +216,17 @@ def list(options):
     if options.verbose:
         list_verbose()
     else:
-        list_std()
+        list_std(not options.no_header, options.running)
 
-def list_std():
+def list_std(header, running):
     ID = 0; NAME = 1; STATUS = 2
-    zone_info = shell_execute("/usr/sbin/zoneadm list -cp")
+    state_flag = "c"
+    if running:
+        state_flag = ""
+    zone_info = shell_execute("/usr/sbin/zoneadm list -p%s" % state_flag)
     zones = [ z for z in zone_info.split("\n") if z != "" ]
-    print("{0:7} {1:20} {2:10}".format("ID", "NAME", "STATUS"))
+    if header:
+        print("{0:7} {1:20} {2:10}".format("ID", "NAME", "STATUS"))
     for z in zones:
         zone_data = z.split(":")
         if zone_data[NAME] != "global":
