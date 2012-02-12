@@ -318,9 +318,10 @@ def backup(options):
     # create backup archive on the specified destination
     archive = os.path.join(options.dest, options.name + "_" + date_name)
     verbose("Creating archive %s from %s..." % (archive, bkp_dir), options.verbose)
-    os.system("tar cvzf %s.tgz %s" % (archive, bkp_dir))
+    tar = shell_execute("tar cvzf %s.tgz %s" % (archive, bkp_dir))
+    verbose(tar, options.verbose)
     # cleanup temporary mess
-    os.system("rm -fr %s" % bkp_dir)
+    shell_execute("rm -fr %s" % bkp_dir)
 
 ## ! precisa de verificacao: a VM já existe? (attach -n não faz um
 ## caralho) erros a meio? tem que verificar que correu bem (success do
