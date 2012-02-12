@@ -13,7 +13,7 @@ import argparse
 ## settings
 ##
 BASE_ZONE_PATH = "/zones"
-BACKUP_SNAPSHOT_NAME = "SVE_BACKUP"
+BACKUP_SNAPSHOT_NAME = "ZVE_BACKUP"
 
 
 ##
