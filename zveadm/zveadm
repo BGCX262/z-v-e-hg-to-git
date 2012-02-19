@@ -3,6 +3,7 @@
 import sys
 import os
 from subprocess import Popen, PIPE, STDOUT
+import shlex
 import datetime
 import re
 import time
@@ -40,6 +41,28 @@ parser_create.add_argument("-B", "--boot-args", dest="bootargs", metavar="BOOTAR
                            help="Boot arguments", default="")
 parser_create.add_argument("-m", "--capped-memory", dest="mem", metavar="CAP-MEM",
                            help="Capped memory", default=None)
+
+# parser for the "update" command
+parser_update = subparsers.add_parser("update", help="Update an existing VM")
+parser_update.add_argument("-n", "--name", dest="name", metavar="NAME",
+                           help="VM name", required=True)
+parser_update.add_argument("-i", "--interface", dest="netif", metavar="NETIF",
+                           default=None, help="Network interface name")
+parser_update.add_argument("-a", "--address", dest="netaddr", metavar="NETADDR",
+                           default=None, help="Network interface IP address")
+parser_update.add_argument("-b", "--autoboot", dest="autoboot", action="store_true",
+                           default=None, help="Should not be booted automatically at system boot")
+parser_update.add_argument("--no-autoboot", dest="noautoboot", action="store_true",
+                           default=None, help="Should be booted automatically at system boot")
+parser_update.add_argument("-D", "--description", dest="desc", metavar="DESCRIPTION",
+                           default=None, help="VM description")
+parser_update.add_argument("-B", "--boot-args", dest="bootargs", metavar="BOOTARGS",
+                           default=None, help="Boot arguments")
+parser_update.add_argument("-m", "--capped-memory", dest="mem", metavar="CAP-MEM",
+                           default=None, help="Capped memory")
+parser_update.add_argument("-r", "--reboot", dest="reboot", action="store_true",
+                           default=False, help="Automatically reboot so that the changes take effect")
+parser_update.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output")
 
 # parser for the "destroy" command
 parser_destroy = subparsers.add_parser("destroy", help="Destroy a VM")
@@ -134,6 +157,30 @@ def verbose(text, v=False):
     if v:
         print(text)
 
+
+##
+## helper functions (create, update, etc.)
+##
+def gen_zone_description(desc, save=False):
+    desc_parts = ["add attr", "set name=comment", "set type=string",
+                  "set value=\"%s\"" % desc, "end"]
+    if save:
+        desc_parts.append("commit")
+    return desc_parts
+
+def gen_zone_cap_mem(limit, save=False):
+    cap_mem = ["add capped-memory", "set physical=%s" % limit, "end"]
+    if save:
+        cap_mem.append("commit")
+    return cap_mem
+
+def gen_zone_net(addr, phys, save=False):
+    cap_mem = ["add net", "set address=%s" % addr, "set physical=%s" % phys, "end"]
+    if save:
+        cap_mem.append("commit")
+    return cap_mem
+
+
 ##
 ## subcommands
 ##
@@ -196,6 +243,59 @@ def create(options):
     print("\nPress enter to connect to the VM's console. Use '[.' to close the connection.")
     input()
     os.system("zlogin -e[ -C %s" % options.name)
+
+def update(options):
+    errors = []
+    # autoboot property
+    autoboot = None
+    if options.autoboot is not None:
+        autoboot = True
+    if options.noautoboot is not None:
+        autoboot = False
+    if autoboot is not None:
+        result = update_vm(options.name, 'set autoboot="%s"' % str(autoboot).lower())
+        if result:
+            errors.append(result)
+    # boot args property
+    if options.bootargs is not None:
+        # bootargs need to be propoerly escaped
+        bootargs = shlex.split(options.bootargs)[0]
+        result = update_vm(options.name, 'set bootargs="%s"' % bootargs)
+        if result:
+            errors.append(result)
+    # description
+    if options.desc is not None:
+        new_desc = ";".join(gen_zone_description(options.desc, save=True))
+        result = update_vm(options.name, "remove attr name=comment; %s" % new_desc)
+        if result:
+            errors.append(result)
+    # memory limit
+    if options.mem is not None:
+        cap_mem = ";".join(gen_zone_cap_mem(options.mem, save=True))
+        result = update_vm(options.name, "remove capped-memory; %s" % cap_mem)
+        if result:
+            errors.append(result)
+    # network
+    if options.netif is not None and options.netaddr is not None:
+        net = ";".join(gen_zone_net(addr=options.netaddr, phys=options.netif, save=True))
+        result = update_vm(options.name, "remove net; %s" % net)
+        if result:
+            errors.append(result)        
+    # if ok maybe reboot, else print errors
+    if errors:
+        print(zone2vm("\n".join(errors)))
+    else:
+        if options.reboot:
+            reboot(options)
+
+# execute the string that actually updates a VM's configuration
+def update_vm(vm, cfg):
+    return shell_execute("zonecfg -z %s '%s'" %(vm, cfg))
+
+# parser_update.add_argument("-i", "--interface", dest="netif", metavar="NETIF",
+#                            help="Network interface name")
+# parser_update.add_argument("-a", "--address", dest="netaddr", metavar="NETADDR",
+#                            help="Network interface IP address")
 
 def destroy(options):
     os.system("zoneadm -z %s halt" % options.name)
